@@ -23,16 +23,22 @@ References:
 var fs = require('fs');
 var program = require('commander');
 var cheerio = require('cheerio');
+var Sync = require('sync');
 var HTMLFILE_DEFAULT = "index.html";
+var TMP_REMOTE_HTMLFILE = "temp-index.html";
 var CHECKSFILE_DEFAULT = "checks.json";
 
 var assertFileExists = function(infile) {
-    var instr = infile.toString();
+    var instr = convertToString(infile);
     if (!fs.existsSync(instr)) {
         console.log("%s does not exist. Exiting.", instr);
         process.exit(1); // http://nodejs.org/api/process.html#process_process_exit_code
     }
     return instr;
+};
+
+var convertToString = function(param) {
+    return param.toString();
 };
 
 var cheerioHtmlFile = function(htmlfile) {
@@ -54,6 +60,12 @@ var checkHtmlFile = function(htmlfile, checksfile) {
    return out;
 };
 
+var gradeHtml = function(htmlfile, checkfile) {
+    var checkJson = checkHtmlFile(htmlfile, checkfile);
+    var outJson = JSON.stringify(checkJson, null, 4);
+    console.log(outJson);
+}
+
 var clone = function(fn) {
     // Workaround for commander.js issue.
     // http://stackoverflow.com/a/6772648
@@ -64,10 +76,23 @@ if (require.main == module) {
     program
         .option('-c. --checks <check_file>', 'Path to checks.json', clone(assertFileExists), CHECKSFILE_DEFAULT)
         .option('-f, --file <html_file>', 'Path to index.html', clone(assertFileExists), HTMLFILE_DEFAULT)
+        .option('-u, --url <url>', 'Url to index.html', clone(convertToString), '')
         .parse(process.argv);
-    var checkJson = checkHtmlFile(program.file, program.checks);
-    var outJson = JSON.stringify(checkJson, null, 4);
-    console.log(outJson);
+    var fileName = program.url ? TMP_REMOTE_HTMLFILE : program.file;
+    console.log("using file " + fileName);
+    if (program.url) {
+       require("restler").get(program.url).on('complete', function(result, response) {
+          if (result instanceof Error) {
+             console.log("Issue accessing %s. Exiting", program.url);
+             process.exit(1);
+          } else {
+             fs.writeFileSync(TMP_REMOTE_HTMLFILE, result);
+             gradeHtml(TMP_REMOTE_HTMLFILE, program.checks);
+          }
+       });
+    } else {
+       gradeHtml(program.file, program.checks);
+    }
 } else {
     exports.checkHtmlFile = checkHtmlFile;
 }
